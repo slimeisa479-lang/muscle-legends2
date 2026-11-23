@@ -6,59 +6,77 @@ if shared.SilenceMuscleLegendsRuntime then
     end)
 end
 
-for _, descendant in ipairs(game:GetService("CoreGui"):GetDescendants()) do
-    if descendant:IsA("ScreenGui") and descendant.Name == "WindUI" and not descendant:FindFirstChild("Window") then
-        descendant:Destroy()
-    end
-end
-
--- WindUI bootstrap. Uses the published WindUI distribution.
--- Try game:HttpGet first, then the executor request interface as fallback.
-local WINDUI_URL = "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
-local function fetchWindUISource()
-    local errors = {}
-
-    local ok, result = pcall(function()
-        return game:HttpGet(WINDUI_URL)
-    end)
-    if ok and type(result) == "string" and #result > 100 then
-        return result
-    end
-    table.insert(errors, "game:HttpGet: " .. tostring(result))
-
-    local requestFunction = request or http_request
-    if type(requestFunction) == "function" then
-        local requestOK, response = pcall(function()
-            return requestFunction({Url = WINDUI_URL, Method = "GET"})
-        end)
-        if requestOK and type(response) == "table" then
-            local body = response.Body or response.body
-            if type(body) == "string" and #body > 100 then
-                return body
-            end
-            table.insert(errors, "request returned no response body")
-        else
-            table.insert(errors, "request: " .. tostring(response))
+pcall(function()
+    for _, descendant in ipairs(game:GetService("CoreGui"):GetDescendants()) do
+        if descendant:IsA("ScreenGui") and descendant.Name == "WindUI" and not descendant:FindFirstChild("Window") then
+            descendant:Destroy()
         end
     end
+end)
 
-    error("Silence could not download WindUI. Check Delta X HTTP/loadstring support and internet access. " .. table.concat(errors, " | "), 0)
+-- WindUI bootstrap (pinned stable release; avoid the moving main branch).
+-- Delta X Android may expose either game:HttpGet or an executor request API.
+local WINDUI_URLS = {
+    "https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua",
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
+}
+
+local function getRequestFunction()
+    if type(request) == "function" then return request end
+    if type(http_request) == "function" then return http_request end
+    if type(syn) == "table" and type(syn.request) == "function" then return syn.request end
+    if type(http) == "table" and type(http.request) == "function" then return http.request end
+    return nil
+end
+
+local function fetchWindUISource()
+    local errors = {}
+    local requestFunction = getRequestFunction()
+
+    for _, url in ipairs(WINDUI_URLS) do
+        if requestFunction then
+            local ok, response = pcall(requestFunction, {Url = url, Method = "GET"})
+            if ok and type(response) == "table" then
+                local body = response.Body or response.body or response.ResponseBody
+                local status = tonumber(response.StatusCode or response.Status or response.status_code)
+                if type(body) == "string" and #body > 100 and (not status or (status >= 200 and status < 300)) then
+                    return body
+                end
+                table.insert(errors, "request response invalid for " .. url .. " (status=" .. tostring(status) .. ")")
+            else
+                table.insert(errors, "request failed for " .. url .. ": " .. tostring(response))
+            end
+        end
+
+        local ok, body = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if ok and type(body) == "string" and #body > 100 then
+            return body
+        end
+        table.insert(errors, "HttpGet failed for " .. url .. ": " .. tostring(body))
+    end
+
+    error("Silence: WindUI download failed. Delta X may be blocking GitHub or HTTP requests. " .. table.concat(errors, " | "), 0)
 end
 
 local compile = loadstring
 if type(compile) ~= "function" then
-    error("Silence cannot start: this Delta X build does not expose loadstring.", 0)
+    error("Silence: loadstring is unavailable in this Delta X session; the menu cannot be created.", 0)
 end
 
 local source = fetchWindUISource()
 local compiled, compileError = compile(source)
 if type(compiled) ~= "function" then
-    error("Silence WindUI compile error: " .. tostring(compileError), 0)
+    error("Silence: WindUI source could not compile: " .. tostring(compileError), 0)
 end
 
 local loaded, WindUI = pcall(compiled)
-if not loaded or type(WindUI) ~= "table" or type(WindUI.CreateWindow) ~= "function" then
-    error("Silence WindUI initialization failed: " .. tostring(WindUI), 0)
+if not loaded then
+    error("Silence: WindUI failed during initialization: " .. tostring(WindUI), 0)
+end
+if type(WindUI) ~= "table" or type(WindUI.CreateWindow) ~= "function" then
+    error("Silence: downloaded WindUI did not expose CreateWindow.", 0)
 end
 
 local library = WindUI
@@ -107,22 +125,3 @@ function runtime:Delay(delayTime, callback, ...)
     if not self.Alive then return end
     return task.delay(delayTime, callback, ...)
 end
-
-function runtime:AddCleanup(callback)
-    table.insert(self.Cleanups, callback)
-end
-
-function runtime:Destroy()
-    if not self.Alive then return end
-    self.Alive = false
-    for _, connection in ipairs(self.Connections) do pcall(function() connection:Disconnect() end) end
-    for index = #self.Cleanups, 1, -1 do pcall(self.Cleanups[index]) end
-    for thread in pairs(self.Threads) do if thread ~= coroutine.running() then pcall(task.cancel, thread) end end
-    table.clear(self.Connections)
-    table.clear(self.Threads)
-    if shared.SilenceMuscleLegendsRuntime == self then shared.SilenceMuscleLegendsRuntime = nil end
-end
-
-local services = {
-	Players = game:GetService("Players"),
-	ReplicatedStorage = game:GetService("ReplicatedStorage"),
