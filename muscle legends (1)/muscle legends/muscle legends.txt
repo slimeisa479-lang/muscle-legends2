@@ -12,9 +12,9 @@ for _, descendant in ipairs(game:GetService("CoreGui"):GetDescendants()) do
     end
 end
 
--- Delta X / Android-safe WindUI bootstrap.
--- Try the executor's game:HttpGet first, then common request interfaces.
-local WINDUI_URL = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/windui/windui.luau"
+-- WindUI bootstrap. Uses the published WindUI distribution.
+-- Try game:HttpGet first, then the executor request interface as fallback.
+local WINDUI_URL = "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
 local function fetchWindUISource()
     local errors = {}
 
