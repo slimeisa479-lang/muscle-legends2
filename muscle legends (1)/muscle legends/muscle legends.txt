@@ -1,115 +1,128 @@
-        local guiService = game:GetService("GuiService")
-        local code = guiService:GetErrorCode()
-        return guiService:GetErrorMessage() ~= "" and (
-            guiService:GetErrorType() == Enum.ConnectionError.DisconnectErrors
-            or (code >= 256 and code < 512)
-            or code >= 1024
-        )
+local shared = (type(getgenv) == "function" and getgenv()) or _G
+
+if shared.SilenceMuscleLegendsRuntime then
+    pcall(function()
+        shared.SilenceMuscleLegendsRuntime:Destroy()
     end)
-    if not success then
-        local readable, visible = pcall(function()
-            local promptGui = game:GetService("CoreGui"):FindFirstChild("RobloxPromptGui")
-            local overlay = promptGui and promptGui:FindFirstChild("promptOverlay")
-            local prompt = overlay and overlay:FindFirstChild("ErrorPrompt")
-            return prompt and prompt.Visible and prompt:FindFirstChild("ErrorFrame", true) ~= nil
+end
+
+for _, descendant in ipairs(game:GetService("CoreGui"):GetDescendants()) do
+    if descendant:IsA("ScreenGui") and descendant.Name == "WindUI" and not descendant:FindFirstChild("Window") then
+        descendant:Destroy()
+    end
+end
+
+-- Delta X / Android-safe WindUI bootstrap.
+-- Try the executor's game:HttpGet first, then common request interfaces.
+local WINDUI_URL = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/windui/windui.luau"
+local function fetchWindUISource()
+    local errors = {}
+
+    local ok, result = pcall(function()
+        return game:HttpGet(WINDUI_URL)
+    end)
+    if ok and type(result) == "string" and #result > 100 then
+        return result
+    end
+    table.insert(errors, "game:HttpGet: " .. tostring(result))
+
+    local requestFunction = request or http_request
+    if type(requestFunction) == "function" then
+        local requestOK, response = pcall(function()
+            return requestFunction({Url = WINDUI_URL, Method = "GET"})
         end)
-        success, disconnected = readable, visible
-    end
-    if success and disconnected then
-        tabs.other.Reconnect.Disconnected = true
-        tabs.other.Reconnect.NextAttemptAt = os.clock() + 30
-    end
-end
-
-tabs.other.ReconnectSwitch = tabs.other:AddSwitch("Auto Reconnect (if you disconnect)", function(state)
-    tabs.other.Reconnect.Enabled = state
-    tabs.other.Reconnect.Disconnected = false
-    tabs.other.Reconnect.NextAttemptAt = 0
-    if state then tabs.other.checkDisconnect() end
-end)
-tabs.other.ReconnectSwitch:SetConfigKey("Other.AutoReconnect")
-
-tabs.other:AddLabel("Continueing Farming will require a Config Profile AND the Script in Autoexecute Folder. It does NOT work on every Executor!")
-
-tabs.other.farmingloadstring = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/main/Scripts/MuscleLegends/Farming.luau", true))()'
-
-tabs.other:AddButton("Copy direct Farming loadstring", function()
-	if type(setclipboard) == "function" and pcall(setclipboard, tabs.other.farmingloadstring) then
-		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Loadstring copied!", Text = "Save it to autoexecute now", Duration = 3}) end)
-	else
-		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Error!", Text = "Clipboard not Supported.", Duration = 3}) end)
-	end
-end)
-
-pcall(function()
-    runtime:Connect(game:GetService("GuiService").ErrorMessageChanged, tabs.other.checkDisconnect)
-end)
-
-tabs.other.attemptReconnect = function()
-    local url, validationError = getReconnectUrl(tabs.other.ReconnectLink.Text)
-    if validationError then error(validationError, 0) end
-    if url then
-        local supported, openUrl = pcall(function() return game:GetService("LinkingService").OpenUrl end)
-        if not supported or type(openUrl) ~= "function" then
-            error("This executor does not support opening private server links", 0)
-        end
-        openUrl(game:GetService("LinkingService"), url)
-        return
-    end
-    local teleportService = game:GetService("TeleportService")
-    local success = pcall(function() teleportService:TeleportReconnect() end)
-    if success then
-        pcall(function() teleportService:UnblockAsync() end)
-    else
-        teleportService:Teleport(game.PlaceId, lp.player)
-    end
-end
-
-runtime:Spawn(function()
-    while runtime.Alive do
-        tabs.other.checkDisconnect()
-        if reconnectDue(tabs.other.Reconnect, os.clock()) then
-            tabs.other.Reconnect.Attempting = true
-            local success, message = pcall(tabs.other.attemptReconnect)
-            tabs.other.Reconnect.Attempting = false
-            if not success then
-                pcall(function()
-                    services.startergui:SetCore("SendNotification", {
-                        Title = "Reconnect failed",
-                        Text = tostring(message) .. " | Retrying in 30 seconds",
-                        Duration = 5
-                    })
-                end)
+        if requestOK and type(response) == "table" then
+            local body = response.Body or response.body
+            if type(body) == "string" and #body > 100 then
+                return body
             end
+            table.insert(errors, "request returned no response body")
+        else
+            table.insert(errors, "request: " .. tostring(response))
         end
-        task.wait(1)
     end
-end)
 
-tabs.info:AddLabel("Made by xyzhenrik")
-tabs.info:AddLabel("Any issues? Create a Ticket on Discord")
-tabs.info:AddLabel("Official Discord: discord.gg/9eFf93Kg8D")
-tabs.info:AddButton("Copy Invite", function()
-	if type(setclipboard) == "function" and pcall(setclipboard, "https://discord.gg/9eFf93Kg8D") then
-		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Link Copied!", Text = "You can continue to Discord now.", Duration = 3}) end)
-	else
-		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Error!", Text = "Clipboard not Supported.", Duration = 3}) end)
-	end
-end)
-tabs.info:AddLabel("")
-tabs.info:AddHeading("Contributors:")
-tabs.info:AddLabel("- Henrik @xyzhenrik")
-tabs.info:AddLabel("- Muki @mukimagdich")
-tabs.info:AddLabel("")
-tabs.info:AddLabel("Silence is Open-Source!")
-tabs.info:AddLabel("")
-tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.3.0]")
-tabs.info.VersionLabel.TextSize = 20
-tabs.info.VersionLabel.Font = Enum.Font.Arcade
-
-
-runtime:Defer(function()
-    services.configManager:LoadStartup()
-end)
-
+    error("Silence could not download WindUI. Check Delta X HTTP/loadstring support and internet access. " .. table.concat(errors, " | "), 0)
 end
+
+local compile = loadstring
+if type(compile) ~= "function" then
+    error("Silence cannot start: this Delta X build does not expose loadstring.", 0)
+end
+
+local source = fetchWindUISource()
+local compiled, compileError = compile(source)
+if type(compiled) ~= "function" then
+    error("Silence WindUI compile error: " .. tostring(compileError), 0)
+end
+
+local loaded, WindUI = pcall(compiled)
+if not loaded or type(WindUI) ~= "table" or type(WindUI.CreateWindow) ~= "function" then
+    error("Silence WindUI initialization failed: " .. tostring(WindUI), 0)
+end
+
+local library = WindUI
+
+local function enableAntiAFK()
+    local player = game:GetService("Players").LocalPlayer
+    local virtualUser = game:GetService("VirtualUser")
+    player.Idled:Connect(function()
+        virtualUser:CaptureController()
+        virtualUser:ClickButton2(Vector2.new())
+    end)
+end
+
+library.EnableAntiAFK = function()
+    enableAntiAFK()
+end
+
+local runtime = {Alive = true, Threads = {}, Connections = {}, Cleanups = {}}
+shared.SilenceMuscleLegendsRuntime = runtime
+
+function runtime:Spawn(callback, ...)
+    if not self.Alive then return end
+    local thread
+    thread = coroutine.create(function(...)
+        local success, result = pcall(callback, ...)
+        self.Threads[thread] = nil
+        if not success then self.LastError = result end
+    end)
+    self.Threads[thread] = true
+    task.spawn(thread, ...)
+    return thread
+end
+
+function runtime:Connect(signal, callback)
+    local connection = signal:Connect(function(...) if self.Alive then callback(...) end end)
+    table.insert(self.Connections, connection)
+    return connection
+end
+
+function runtime:Defer(callback, ...)
+    if not self.Alive then return end
+    return task.defer(callback, ...)
+end
+
+function runtime:Delay(delayTime, callback, ...)
+    if not self.Alive then return end
+    return task.delay(delayTime, callback, ...)
+end
+
+function runtime:AddCleanup(callback)
+    table.insert(self.Cleanups, callback)
+end
+
+function runtime:Destroy()
+    if not self.Alive then return end
+    self.Alive = false
+    for _, connection in ipairs(self.Connections) do pcall(function() connection:Disconnect() end) end
+    for index = #self.Cleanups, 1, -1 do pcall(self.Cleanups[index]) end
+    for thread in pairs(self.Threads) do if thread ~= coroutine.running() then pcall(task.cancel, thread) end end
+    table.clear(self.Connections)
+    table.clear(self.Threads)
+    if shared.SilenceMuscleLegendsRuntime == self then shared.SilenceMuscleLegendsRuntime = nil end
+end
+
+local services = {
+	Players = game:GetService("Players"),
+	ReplicatedStorage = game:GetService("ReplicatedStorage"),
